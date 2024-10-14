@@ -1,0 +1,10 @@
+---
+- hosts: all
+  become: true
+  vars:
+    skip_disable_socket_activation: true  # Custom variable to control skipping
+    skip_restart_sshd: true               # Custom variable to skip restarting sshd
+
+
+  roles:
+    - role: devsec.hardening.ssh_hardening

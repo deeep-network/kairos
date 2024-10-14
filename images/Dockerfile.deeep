@@ -1,17 +1,17 @@
-# This file is auto-generated with the command: earthly +kairos-dockerfile --FAMILY=ubuntu
+# WARNING: This is a base image used internally for Kairos, it is not meant to be built directly, use the images/Dockerfile.kairos-* files instead
 ###############################################################
 ####                           ARGS                        ####
 ###############################################################
+# WARNING: While some of the ARGs are not used in this file, they are used in the images/Dockerfile.kairos-* files
 # TARGETARCH is used to determine the architecture of the image, it is already set by Docker so it doesn't need to be defined here
-ARG FAMILY=ubuntu
+ARG FAMILY=deeep
 # Currently supported flavors are:
 #   - ubuntu
-ARG FLAVOR
-#   - 24.10
-#   - 24.04
-#   - 22.04
+ARG FLAVOR=ubuntu
 #   - 20.04
-ARG FLAVOR_RELEASE
+#   - 22.04
+#   - 24.04
+ARG FLAVOR_RELEASE=24.04
 # Currently supported models are:
 #   - generic
 #   - rpi4
@@ -26,10 +26,8 @@ ARG BOOTLOADER=systemd-boot
 ###############################################################
 ####                     Upstream Images                   ####
 ###############################################################
-FROM ${BASE_IMAGE} AS ubuntu-24.10-upstream
+
 FROM ${BASE_IMAGE} AS ubuntu-24.04-upstream
-FROM ${BASE_IMAGE} AS ubuntu-22.04-upstream
-FROM ${BASE_IMAGE} AS ubuntu-20.04-upstream
 
 ###############################################################
 ####                build nohang from source               ####
@@ -95,7 +93,6 @@ RUN  apt-get update \
     ubuntu-advantage-tools \
     xz-utils \
     zstd \
-    tpm2-tools \
     tpm2-* \
     opensc \
     && apt-get remove -y unattended-upgrades && apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -122,6 +119,10 @@ RUN  apt-get update \
       libssl-dev \
       libtss2-esys-3.0.2-0 \
       libpam-u2f \
+      libssl \
+      tpm2-tss \
+      libtss2-esys-3.0.2-0 \
+      libzmq3 \
       && apt-get remove -y unattended-upgrades && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Step CLI
@@ -133,14 +134,6 @@ RUN curl -L -o step-cli_0.23.2_amd64.deb https://github.com/smallstep/cli/releas
 COPY --from=nohang-src /root/nohang/deb/package.deb /tmp/nohang.deb
 RUN apt-get install -y --no-install-recommends /tmp/nohang.deb
 RUN rm -rf /tmp/nohang.deb
-
-
-#FROM busybox AS downloader
-
-#RUN wget https://commondatastorage.googleapis.com/chromium-browser-snapshots/Linux_x64/1319705/chrome-linux.zip
-#RUN unzip chrome-linux.zip
-#RUN mv chrome-linux /
-
 
 ###############################################################
 ####                  Keylime Build Stage                  ####
@@ -222,9 +215,7 @@ RUN [ -z "$(ls -A /lib/firmware/intel-ucode/)" ] && apt-get update && apt-get in
 
 FROM systemd-boot AS systemd-boot-arm64
 
-FROM systemd-boot-amd64 AS systemd-boot-amd64-24.10
 FROM systemd-boot-amd64 AS systemd-boot-amd64-24.04
-FROM systemd-boot-arm64 AS systemd-boot-arm64-24.10
 FROM systemd-boot-arm64 AS systemd-boot-arm64-24.04
 
 FROM grub AS grub-amd64
@@ -257,11 +248,9 @@ FROM grub-current AS grub-arm64-current
 FROM grub-legacy AS grub-amd64-legacy
 FROM grub-legacy AS grub-arm64-legacy
 
-FROM grub-current AS grub-amd64-24.10
 FROM grub-current AS grub-amd64-24.04
 FROM grub-current AS grub-amd64-22.04
 FROM grub-legacy AS grub-amd64-20.04
-FROM grub-current AS grub-arm64-24.10
 FROM grub-current AS grub-arm64-24.04
 FROM grub-current AS grub-arm64-22.04
 FROM grub-legacy AS grub-arm64-20.04
@@ -270,7 +259,10 @@ FROM grub-legacy AS grub-arm64-20.04
 ####           Common to a Single Architecture             ####
 ###############################################################
 
-FROM ${BOOTLOADER}-${TARGETARCH}-${FLAVOR_RELEASE} AS amd64
+FROM ${BOOTLOADER}-${TARGETARCH}-${FLAVOR_RELEASE} AS amd6This was already reported upstream a long time ago (found it in debian) as systemd/systemd#33855
+
+It has been fixed, so it may be available in systemd 256.6 or 256.7
+current ubuntu version is 256.5 :(4
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     dmsetup \
@@ -312,42 +304,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     polkitd \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-FROM base-ubuntu-current AS kernel-ubuntu-current
-RUN apt-get update
+FROM base-ubuntu-current AS kernel-ubuntu-24.04
+RUN apt-get updateincus 
 # If a kernel is already installed, don't try to install it again, this way the base image can
 # be non-hwe for older releases
 RUN [ -z "$(ls -A /boot/vmlinuz*)" ] && apt-get install -y --no-install-recommends \
     linux-image-generic-hwe-24.04 || true
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
-FROM kernel-ubuntu-current AS kernel-ubuntu-24.10
-FROM kernel-ubuntu-current AS kernel-ubuntu-24.04
-
-FROM base-ubuntu-current AS kernel-ubuntu-22.04
-RUN apt-get update
-# If a kernel is already installed, don't try to install it again, this way the base image can
-# be non-hwe for older releases
-RUN [ -z "$(ls -A /boot/vmlinuz*)" ] && apt-get install -y --no-install-recommends \
-    linux-image-generic-hwe-22.04 || true
-RUN apt-get clean && rm -rf /var/lib/apt/lists/*
-
-FROM base-ubuntu-legacy AS kernel-ubuntu-20.04
-# If a kernel is already installed, don't try to install it again, this way the base image can
-# be non-hwe for older releases
-RUN apt-get update
-RUN [ -z "$(ls -A /boot/vmlinuz*)" ] && apt-get install -y --no-install-recommends \
-    linux-image-generic-hwe-20.04 || true
-RUN apt-get clean && rm -rf /var/lib/apt/lists/*
-
-FROM kernel-ubuntu-24.10 AS amd64-ubuntu-24.10
 FROM kernel-ubuntu-24.04 AS amd64-ubuntu-24.04
-FROM kernel-ubuntu-22.04 AS amd64-ubuntu-22.04
-FROM kernel-ubuntu-20.04 AS amd64-ubuntu-20.04
-
-FROM kernel-ubuntu-24.10 AS arm64-ubuntu-24.10
-FROM kernel-ubuntu-24.04 AS arm64-ubuntu-24.04
-FROM kernel-ubuntu-22.04 AS arm64-ubuntu-22.04
-FROM kernel-ubuntu-20.04 AS arm64-ubuntu-20.04
 
 ###############################################################
 ####               Common to a Single Model                ####
@@ -358,36 +323,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     qemu-guest-agent \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-FROM arm64-${FLAVOR}-${FLAVOR_RELEASE} AS rpicommon
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    linux-raspi \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-COPY rpi/config.txt /boot/config.txt
-
-FROM rpicommon AS ubuntu-20.04-rpi
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    linux-firmware-raspi2 \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-FROM rpicommon AS ubuntu-22.04-rpi
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    linux-firmware-raspi \
-    linux-modules-extra-raspi \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-FROM generic AS amd64-ubuntu-24.10-generic
 FROM generic AS amd64-ubuntu-24.04-generic
-FROM generic AS amd64-ubuntu-22.04-generic
-FROM generic AS amd64-ubuntu-20.04-generic
-
-FROM generic AS arm64-ubuntu-24.10-generic
-FROM generic AS arm64-ubuntu-24.04-generic
-FROM ubuntu-22.04-rpi AS arm64-ubuntu-24.04-rpi4
-FROM ubuntu-22.04-rpi AS arm64-ubuntu-22.04-rpi3
-FROM ubuntu-22.04-rpi AS arm64-ubuntu-22.04-rpi4
-FROM ubuntu-20.04-rpi AS arm64-ubuntu-20.04-rpi3
-FROM ubuntu-20.04-rpi AS arm64-ubuntu-20.04-rpi4
-FROM ubuntu-20.04-upstream AS arm64-ubuntu-20.04-nvidia-jetson-agx-orin
 
 ###############################################################
 ####                Common to a Single Flavor              ####
@@ -404,7 +340,7 @@ RUN apt-get update \
 # for some reason \+ is breaking. Using \; instead despite being slower
 RUN find /usr/lib/firmware -type f ! -name "*.zst" -execdir zstd --rm -9 {} \;
 
-FROM ubuntu-latest AS ubuntu-latest-selinux
+FROM ubuntu-latest AS ubuntu-24.04
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     isc-dhcp-common \
@@ -415,8 +351,6 @@ RUN apt-get update \
     linux-firmware \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-FROM ubuntu-latest-selinux AS ubuntu-24.10
-FROM ubuntu-latest-selinux AS ubuntu-24.04
 # Remove all files in /usr/lib/firmware except the specified ones in mediatek, i915, intel, amd, and their subdirectories
 RUN find /usr/lib/firmware \
     ! -path "/usr/lib/firmware" \
@@ -539,7 +473,6 @@ FROM ubuntu-legacy AS ubuntu-20.04
 FROM ${FLAVOR}-${FLAVOR_RELEASE} AS all
 ARG CACHEBUST=8
 
-
 # compress modules
 RUN find /usr/lib/modules -type f -name "*.ko" -execdir zstd --rm -9 {} \+
 
@@ -578,10 +511,12 @@ RUN systemctl disable getty@tty1.service && \
     systemctl mask getty@tty6.service && \
     systemctl disable serial-getty@ttyS0.service && \
     systemctl mask serial-getty@ttyS0.service && \
-    systemctl disable getty.target && \LABEL io.kairos.flavor="${FLAVOR}"
-
+    systemctl disable getty.target && \
     systemctl mask getty.target && \
-    systemctl enable monitor_tty1.service
+    systemctl enable monitor_tty1.service && \
+    mkdir -p /etc/systemd/logind.conf.d/ \
+    && echo -e "[Login]\nNAutoVTs=0\nReserveVT=0\n" \
+    > /etc/systemd/logind.conf.d/override.conf
 
 # Fixup sudo perms
 RUN chown root:root /usr/bin/sudo && chmod 4755 /usr/bin/sudo
@@ -590,131 +525,3 @@ RUN chown root:root /usr/bin/sudo && chmod 4755 /usr/bin/sudo
 RUN mkdir -p /etc/systemd/system/systemd-networkd-wait-online.service.d/ \
   && echo -e "[Service]\nExecStart=\nExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any --ipv4" \
   > /etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf
-
-# Create override for logind to prevent getty from showing up
-RUN mkdir -p /etc/systemd/logind.conf.d/ \
-&& echo -e "[Login]\nNAutoVTs=0\nReserveVT=0\n" \
-> /etc/systemd/logind.conf.d/override.conf
-
-FROM --platform="linux/${TARGETARCH}" quay.io/kairos/framework:${FRAMEWORK_VERSION} AS framework
-
-FROM all AS base-kairos
-
-# Symlinks to make elemental installer work
-RUN ORIG=/usr/sbin/grub-install; DEST=/usr/sbin/grub2-install; [ -e $ORIG ] && [ ! -e $DEST ] && ln -s $ORIG $DEST || true
-RUN ORIG=/usr/bin/grub-editenv; DEST=/usr/sbin/grub2-editenv; [ -e $ORIG ] && [ ! -e $DEST ] && ln -s $ORIG $DEST || true
-
-# here we add 100Mb aprox
-COPY --from=framework / /
-
-RUN rm -rf /etc/ssh/ssh_host_*
-
-COPY which-init.sh /usr/local/bin/which-init.sh
-
-RUN if [ -f "/etc/kairos-release" ]; then sed -i -n '/KAIROS_/!p' /etc/kairos-release; fi
-
-# need to be defined after FROM for them to be replaced in the RUN bellow
-ARG HOME_URL="https://github.com/kairos-io/kairos"
-ARG BUG_REPORT_URL="https://github.com/kairos-io/kairos/issues"
-ARG GITHUB_REPO="kairos-io/kairos"
-ARG ID=kairos
-ARG REGISTRY_AND_ORG="quay.io/kairos"
-
-ARG RELEASE
-ARG FLAVOR
-ARG FLAVOR_RELEASE
-ARG VARIANT
-ARG FAMILY
-ARG MODEL
-ARG TARGETARCH
-ARG SOFTWARE_VERSION
-ARG SOFTWARE_VERSION_PREFIX
-ARG SOFTWARE_LUET_VERSION=""
-
-RUN rm -rf /etc/machine-id
-
-FROM base-kairos AS kairos-core
-
-FROM base-kairos AS kairos-standard
-ARG SOFTWARE_VERSION
-LABEL io.kairos.k3s_version="${SOFTWARE_VERSION}"
-RUN luet install -y system/provider-kairos
-RUN luet install -y "k8s/k3s-$(which-init.sh)@${SOFTWARE_LUET_VERSION:-$SOFTWARE_VERSION}" utils/edgevpn utils/k9s utils/nerdctl container/kubectl utils/kube-vip
-
-FROM kairos-${VARIANT} AS kairos-final
-ARG BASE_IMAGE
-ARG FRAMEWORK_VERSION
-ARG RELEASE
-ARG FLAVOR
-ARG FLAVOR_RELEASE
-ARG VARIANT
-ARG FAMILY
-ARG MODEL
-ARG TARGETARCH
-ARG SOFTWARE_VERSION
-ARG SOFTWARE_VERSION_PREFIX
-
-LABEL org.opencontainers.image.authors="Kairos Maintainers <team@kairos.io>"
-LABEL org.opencontainers.image.licenses="Apache-2.0"
-LABEL org.opencontainers.image.url="https://github.com/kairos-io/kairos"
-LABEL org.opencontainers.image.source="https://github.com/kairos-io/kairos.git"
-LABEL io.kairos.base_image="${BASE_IMAGE}"
-LABEL io.kairos.variant="${VARIANT}"
-LABEL io.kairos.family="${FAMILY}"
-LABEL io.kairos.flavor="${FLAVOR}"
-LABEL io.kairos.flavor_release="${FLAVOR_RELEASE}"
-LABEL io.kairos.model="${MODEL}"
-LABEL io.kairos.release="${RELEASE}"
-LABEL io.kairos.framework-version="${FRAMEWORK_VERSION}"
-LABEL io.kairos.software-version="${SOFTWARE_VERSION}"
-LABEL io.kairos.software-version-prefix="${SOFTWARE_VERSION_PREFIX}"
-LABEL io.kairos.targetarch="${TARGETARCH}"
-
-RUN kairos-agent versioneer os-release-variables > /etc/kairos-release
-RUN kairos-agent versioneer container-artifact-name > /IMAGE
-
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-RUN luet database get-all-installed --output /etc/kairos/versions.yaml
-
-# TODO what about caches?
-RUN kernel=$(ls /lib/modules | head -n1) && depmod -a "${kernel}"
-
-# Set empty machine-id
-# This prevents systemd from thinking that the machine is on first boot
-# and recreating /etc/ dependencies in services and such
-# do this before initramfs so its in the initramfs
-RUN echo "" > /etc/machine-id || true
-# Regenerate initrd if necessary, proper config files with immucore and custom initrd should already be in there installed by framework
-# for systemd distros
-RUN if [ -f "/usr/bin/dracut" ]; then \
-      kernel=$(ls /lib/modules | head -n1) && \
-      dracut -f "/boot/initrd-${kernel}" "${kernel}" && \
-      ln -sf "initrd-${kernel}" /boot/initrd; \
-    fi
-# for alpine (openrc based)
-RUN if [ -f "/sbin/mkinitfs" ]; then \
-      kernel=$(ls /lib/modules | head -n1) && \
-      mkinitfs -o /boot/initrd "${kernel}"; \
-    fi
-
-# symlink kernel to /boot/vmlinuz
-RUN kernel=$(ls /boot/vmlinuz-* 2>/dev/null | head -n1) && if [ -e "$kernel" ]; then ln -sf "$kernel" /boot/vmlinuz; fi || true
-RUN kernel=$(ls /boot/Image* 2>/dev/null | head -n1) && if [ -e "$kernel" ]; then ln -sf "$kernel" /boot/vmlinuz; fi || true
-
-# this is generally present on rhel based systems, but it doesn't hurt to remove in any case
-RUN rm -rf /boot/initramfs-* || true
-
-RUN rm /var/lib/dbus/machine-id || true
-RUN rm /etc/hostname || true
-
-# Disable the make-policy service that its on by default on some systemd versions
-# it creates a pcrlock.json policy that conflicts with our mesurements when trying to enroll it
-RUN if [ "$(which-init.sh)" = "systemd" ]; then \
-      systemctl disable systemd-pcrlock-make-policy || true; \
-      systemctl mask systemd-pcrlock-make-policy || true; \
-      journalctl --vacuum-size=1K || true; \
-    fi
-
-RUN rm -rf /tmp/*
-RUN luet cleanup
-RUN rm -rf /var/luet
