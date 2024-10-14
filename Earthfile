@@ -201,7 +201,7 @@ kairos-dockerfile:
     ARG --required FAMILY
     COPY +kairos-dockerfile-context/images .
     IF [ "$FAMILY" == "all" ]
-        ARG FAMILY_LIST="alpine debian opensuse rhel ubuntu"
+        ARG FAMILY_LIST="alpine debian opensuse rhel ubuntu deeep"
     ELSE
         ARG FAMILY_LIST=$FAMILY
     END
@@ -355,9 +355,9 @@ uki-iso:
     IF [ "$ENKI_OVERLAY_DIR" != "" ]
         COPY $ENKI_OVERLAY_DIR /overlay-iso
 
-        RUN --no-cache echo $ENKI_FLAGS | xargs enki build-uki $BASE_IMAGE --output-dir /build/ -k /keys --output-type ${ENKI_OUTPUT_TYPE} --overlay-iso /overlay-iso
+        RUN --no-cache echo $ENKI_FLAGS | xargs enki:local build-uki $BASE_IMAGE --output-dir /build/ -k /keys --output-type ${ENKI_OUTPUT_TYPE} --overlay-iso /overlay-iso
     ELSE
-        RUN --no-cache echo $ENKI_FLAGS | xargs enki build-uki $BASE_IMAGE --output-dir /build/ -k /keys --output-type ${ENKI_OUTPUT_TYPE}
+        RUN --no-cache echo $ENKI_FLAGS | xargs enki:local build-uki $BASE_IMAGE --output-dir /build/ -k /keys --output-type ${ENKI_OUTPUT_TYPE}
     END
 
 
@@ -435,6 +435,12 @@ uki-dev-build:
     COPY +uki-dev-base/Uname .
     COPY +uki-dev-base/Osrelease .
 
+    # Create the directory for the BMP file
+    RUN mkdir -p /usr/share/systemd/bootctl
+
+    # Copy the BMP file into the directory
+    COPY deeep/deeep.bmp /usr/share/systemd/bootctl/deeep.bmp
+
     COPY +git-version/GIT_VERSION ./
     ARG KAIROS_VERSION=$(cat GIT_VERSION)
 
@@ -448,6 +454,7 @@ uki-dev-build:
         --secureboot-certificate DB.crt \
         --pcr-private-key tpm2-pcr-private.pem \
         --measure \
+        --splash=/usr/share/systemd/bootctl/deeep.bmp \
         --output uki.signed.efi
     RUN sbsign --key DB.key --cert DB.crt --output systemd-bootx64.signed.efi /usr/lib/systemd/boot/efi/systemd-bootx64.efi
     RUN printf 'title Kairos %s\nefi /EFI/kairos/%s.efi\nversion %s' ${KAIROS_VERSION} ${KAIROS_VERSION} ${KAIROS_VERSION} > ${KAIROS_VERSION}.conf

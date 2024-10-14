@@ -1,0 +1,7 @@
+---
+- name: Restart sshd
+  ansible.builtin.service:
+    name: "{{ sshd_service_name }}"
+    state: restarted
+  when: ssh_server_enabled | bool and not skip_restart_sshd | default(false)
+  become: true

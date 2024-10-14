@@ -6,11 +6,11 @@
 ARG FAMILY=ubuntu
 # Currently supported flavors are:
 #   - ubuntu
-ARG FLAVOR
+ARG FLAVOR=ubuntu
 #   - 20.04
 #   - 22.04
 #   - 24.04
-ARG FLAVOR_RELEASE
+ARG FLAVOR_RELEASE=24.04
 # Currently supported models are:
 #   - generic
 #   - rpi4
@@ -20,7 +20,7 @@ ARG BASE_IMAGE
 ARG VARIANT
 ARG VERSION
 ARG FRAMEWORK_VERSION=main
-ARG BOOTLOADER=grub
+ARG BOOTLOADER=systemd-boot
 
 ###############################################################
 ####                     Upstream Images                   ####
@@ -96,12 +96,76 @@ RUN  apt-get update \
     xz-utils \
     zstd \
     tpm2-* \
+    opensc \
     && apt-get remove -y unattended-upgrades && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+
+# Add SaltStack repository and keyring
+RUN mkdir -p /etc/apt/keyrings \
+    && curl -fsSL -o /etc/apt/keyrings/salt-archive-keyring-2023.gpg https://repo.saltproject.io/salt/py3/ubuntu/24.04/amd64/SALT-PROJECT-GPG-PUBKEY-2023.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/salt-archive-keyring-2023.gpg arch=amd64] https://repo.saltproject.io/salt/py3/ubuntu/24.04/amd64/latest noble main" | tee /etc/apt/sources.list.d/salt.list \
+    && curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null \
+    && curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
+
+# Add Zabbly GPG key and create the source list for Incus
+RUN curl -fsSL https://pkgs.zabbly.com/key.asc -o /etc/apt/keyrings/zabbly.asc \
+    && printf "Enabled: yes\nTypes: deb\nURIs: https://pkgs.zabbly.com/incus/stable\nSuites: $(. /etc/os-release && echo ${VERSION_CODENAME})\nComponents: main\nArchitectures: $(dpkg --print-architecture)\nSigned-By: /etc/apt/keyrings/zabbly.asc\n" \
+    > /etc/apt/sources.list.d/zabbly-incus-stable.sources
+
+
+RUN  apt-get update \
+    && apt-get install -y --no-install-recommends \
+      salt-minion \
+      incus \
+      tailscale \
+      libssl-dev \
+      libtss2-esys-3.0.2-0 \
+      libpam-u2f \
+      && apt-get remove -y unattended-upgrades && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Step CLI
+RUN curl -L -o step-cli_0.23.2_amd64.deb https://github.com/smallstep/cli/releases/download/v0.23.2/step-cli_0.23.2_amd64.deb \
+    && dpkg -i step-cli_0.23.2_amd64.deb \
+    && rm step-cli_0.23.2_amd64.deb
 
 # Install nohang
 COPY --from=nohang-src /root/nohang/deb/package.deb /tmp/nohang.deb
 RUN apt-get install -y --no-install-recommends /tmp/nohang.deb
 RUN rm -rf /tmp/nohang.deb
+
+
+#FROM busybox AS downloader
+
+#RUN wget https://commondatastorage.googleapis.com/chromium-browser-snapshots/Linux_x64/1319705/chrome-linux.zip
+#RUN unzip chrome-linux.zip
+#RUN mv chrome-linux /
+
+
+###############################################################
+####                  Keylime Build Stage                  ####
+###############################################################
+# Use a separate stage to build Keylime so build dependencies don't stay in the final image
+FROM ubuntu:22.04 AS keylime-build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    build-essential \
+    git \
+    cargo \
+    libssl-dev \
+    pkg-config \
+    libclang-dev \
+    libssl-dev \
+    libtss2-dev \
+    pkg-config \
+    libzmq3-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Clone and build Keylime
+RUN git clone https://github.com/keylime/rust-keylime.git /opt/keylime \
+    && cd /opt/keylime \
+    && cargo build --release
 
 # This target is aimed at UKI images and avoids to install GRUB and any other unnecesary packages
 # to the image because there are limitations on the total size
@@ -143,6 +207,8 @@ FROM systemd-boot AS systemd-boot-amd64
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     shared-mime-info \
+    linux-modules-extra-6.8.0-45-generic \
+    linux-modules-6.8.0-45-generic \
     && apt-get remove -y unattended-upgrades && apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN [ -z "$(ls -A /lib/firmware/amd/)" ] && apt-get update && apt-get install -y --no-install-recommends \
   && apt-get install -y --no-install-recommends \
@@ -335,7 +401,111 @@ RUN apt-get update \
     selinux-utils \
     selinux-basics \
     selinux-policy-default \
+    linux-firmware \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Remove all files in /usr/lib/firmware except the specified ones in mediatek, i915, intel, amd, and their subdirectories
+RUN find /usr/lib/firmware \
+    ! -path "/usr/lib/firmware" \
+    ! -path "/usr/lib/firmware/mediatek" \
+    ! -path "/usr/lib/firmware/mediatek/*" \
+    ! -path "/usr/lib/firmware/i915" \
+    ! -path "/usr/lib/firmware/i915/*" \
+    ! -path "/usr/lib/firmware/intel-ucode" \
+    ! -path "/usr/lib/firmware/intel-ucode/*" \
+    ! -path "/usr/lib/firmware/intel" \
+    ! -path "/usr/lib/firmware/intel/*" \
+    ! -path "/usr/lib/firmware/amd" \
+    ! -path "/usr/lib/firmware/amd/*" \
+    ! -path "/usr/lib/firmware/amd-ucode" \
+    ! -path "/usr/lib/firmware/amd-ucode/*" \
+    ! -path "/usr/lib/firmware/mediatek/*MT7922*.bin" \
+    ! -path "/usr/lib/firmware/mediatek/*MT7922*.bin.zst" \
+    -type f -exec rm -f {} \;
+
+# Copy the Keylime agent binary and related files from the build stage
+COPY --from=keylime-build /opt/keylime/target/release/keylime_agent /usr/local/bin/keylime_agent
+COPY --from=keylime-build /opt/keylime/target/release/keylime_ima_emulator /usr/local/bin/keylime_ima_emulator
+
+
+# Copy configuration files and systemd service units from the build stage
+COPY --from=keylime-build /opt/keylime/keylime-agent.conf /etc/keylime/agent.conf
+COPY --from=keylime-build /opt/keylime/dist/systemd/system/keylime_agent.service /etc/systemd/system/keylime_agent.service
+COPY --from=keylime-build /opt/keylime/dist/systemd/system/var-lib-keylime-secure.mount /etc/systemd/system/var-lib-keylime-secure.mount
+COPY --from=keylime-build /opt/keylime/keylime-agent/tests/actions/shim.py /usr/libexec/keylime/shim.py
+
+# Add Salt Minion configuration to use systemd-journald for logging
+RUN mkdir -p /etc/salt/
+COPY salt/minion /etc/salt/minion
+
+#COPY --from=downloader /chrome-linux /etc/chrome-linux
+#RUN ln -s /etc/chrome-linux/chrome /usr/bin/chrome
+
+
+###############################################################
+####           Ansible Stage for SSH Hardening             ####
+###############################################################
+
+FROM ubuntu-24.04 as ansible_stage
+ARG CACHEBUST=8
+
+# Install additional dependencies if necessary
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ssh \
+    git \
+    ansible \
+    wget \
+    diffutils \
+    patch \
+    rsync \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Download the collection directly from GitHub
+ENV COLLECTION_VERSION="master"
+
+RUN rm -R /tmp
+
+# Clone the collection repository and checkout the specified version
+RUN git clone --branch ${COLLECTION_VERSION} --depth 1 https://github.com/dev-sec/ansible-collection-hardening.git /tmp/devsec-hardening
+
+# Replace the disable-systemd-socket.yml since we are not actively running systemd
+COPY ansible/disable-systemd-socket.yml /tmp/devsec-hardening/roles/ssh_hardening/tasks/disable-systemd-socket.yml
+COPY ansible/main.yml /tmp/devsec-hardening/roles/ssh_hardening/handlers/main.yml
+
+# Build the collection locally
+RUN ansible-galaxy collection build /tmp/devsec-hardening --output-path /tmp
+
+# Install the collection from the built tarball
+RUN ansible-galaxy collection install /tmp/devsec-hardening-*.tar.gz --force
+RUN ansible-galaxy collection install community.general
+
+# Copy the filesystem from the 'common' stage to /mnt/rootfs
+COPY --from=common / /mnt/rootfs
+
+# Create copies of the filesystem
+RUN rsync -a --exclude='/proc/*' --exclude='/sys/*' --exclude='/dev/*' \
+    --exclude='/tmp/*' --exclude='/mnt/*' --exclude='/media/*' --exclude='/run/*' \
+    /mnt/rootfs/ /tmp/original_fs/ && \
+    mkdir /tmp/modified_fs
+
+# Copy Ansible playbook and requirements
+COPY ansible/ssh_hardening.yml /tmp/ssh_hardening.yml
+COPY ansible/requirements.yml /tmp/requirements.yml
+
+# Install required Ansible collections
+RUN ansible-galaxy collection install -r /tmp/requirements.yml
+
+RUN ansible-playbook -c chroot -i '/mnt/rootfs,' /tmp/ssh_hardening.yml
+
+# Create a copy of the modified filesystem
+RUN rsync -a --exclude='/proc/*' --exclude='/sys/*' --exclude='/dev/*' \
+    --exclude='/tmp/*' --exclude='/mnt/*' --exclude='/media/*' --exclude='/run/*' \
+    /mnt/rootfs/ /tmp/modified_fs/
+
+# Generate diffs between original and modified
+RUN diff -ruN /tmp/original_fs/ /tmp/modified_fs/ || true | sed 's#/tmp/original_fs##' | sed 's#/tmp/modified_fs##' | tee /tmp/fs_diff.patch
+
+
 
 FROM ${TARGETARCH}-${FLAVOR}-${FLAVOR_RELEASE}-${MODEL} AS ubuntu-legacy
 RUN find /usr/lib/firmware -type f ! -name "*.zst" -execdir zstd --rm -9 {} \+
@@ -354,15 +524,63 @@ FROM ubuntu-legacy AS ubuntu-20.04
 ####               Post-Process Common to All              ####
 ###############################################################
 FROM ${FLAVOR}-${FLAVOR_RELEASE} AS all
+ARG CACHEBUST=8
+
 
 # compress modules
 RUN find /usr/lib/modules -type f -name "*.ko" -execdir zstd --rm -9 {} \+
 
-RUN systemctl enable systemd-networkd
-RUN systemctl enable ssh
+RUN systemctl enable keylime_agent.service && \
+    systemctl enable systemd-networkd && \
+    systemctl enable salt-minion && \
+    systemctl enable ssh
+
+COPY deeep/monitor_tty1.service /etc/systemd/system/monitor_tty1.service
+COPY deeep/monitor_tty1.sh /usr/bin/monitor_tty1.sh
+
+# Install patch utility if not already present
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    patch \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Copy the diff patch from 'ansible_stage' & apply patch to the base filesystem
+COPY --from=ansible_stage /tmp/fs_diff.patch /tmp/fs_diff1.patch
+RUN patch -p1 -d / < /tmp/fs_diff1.patch && rm /tmp/fs_diff1.patch && \
+   apt-get remove --purge -y --no-install-recommends \
+    patch \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+#This disables interactive login for a secure, remotely managed device
+RUN systemctl disable getty@tty1.service && \
+    systemctl mask getty@tty1.service && \
+    systemctl disable getty@tty2.service && \
+    systemctl mask getty@tty2.service && \
+    systemctl disable getty@tty3.service && \
+    systemctl mask getty@tty3.service && \
+    systemctl disable getty@tty4.service && \
+    systemctl mask getty@tty4.service && \
+    systemctl disable getty@tty5.service && \
+    systemctl mask getty@tty5.service  && \
+    systemctl disable getty@tty6.service && \
+    systemctl mask getty@tty6.service && \
+    systemctl disable serial-getty@ttyS0.service && \
+    systemctl mask serial-getty@ttyS0.service && \
+    systemctl disable getty.target && \
+    systemctl mask getty.target && \
+    systemctl enable monitor_tty1.service
 
 # Fixup sudo perms
 RUN chown root:root /usr/bin/sudo && chmod 4755 /usr/bin/sudo
+
+# Create override for systemd-networkd-wait-online to use any online interface, not waiting for all of them
+RUN mkdir -p /etc/systemd/system/systemd-networkd-wait-online.service.d/ \
+  && echo -e "[Service]\nExecStart=\nExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any --ipv4" \
+  > /etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf
+
+# Create override for logind to prevent getty from showing up
+RUN mkdir -p /etc/systemd/logind.conf.d/ \
+&& echo -e "[Login]\nNAutoVTs=0\nReserveVT=0\n" \
+> /etc/systemd/logind.conf.d/override.conf
 
 FROM --platform="linux/${TARGETARCH}" quay.io/kairos/framework:${FRAMEWORK_VERSION} AS framework
 

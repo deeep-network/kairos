@@ -1,0 +1,17 @@
+[Unit]
+Description=System Status Display on tty1
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/monitor_tty1.sh
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+Restart=always
+RestartSec=5
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
