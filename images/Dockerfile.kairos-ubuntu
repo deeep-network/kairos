@@ -415,8 +415,6 @@ RUN apt-get update \
     linux-firmware \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-FROM ubuntu-latest-selinux AS ubuntu-24.10
-FROM ubuntu-latest-selinux AS ubuntu-24.04
 # Remove all files in /usr/lib/firmware except the specified ones in mediatek, i915, intel, amd, and their subdirectories
 RUN find /usr/lib/firmware \
     ! -path "/usr/lib/firmware" \
@@ -578,8 +576,7 @@ RUN systemctl disable getty@tty1.service && \
     systemctl mask getty@tty6.service && \
     systemctl disable serial-getty@ttyS0.service && \
     systemctl mask serial-getty@ttyS0.service && \
-    systemctl disable getty.target && \LABEL io.kairos.flavor="${FLAVOR}"
-
+    systemctl disable getty.target && \
     systemctl mask getty.target && \
     systemctl enable monitor_tty1.service
 
